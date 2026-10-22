@@ -1,15 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
-import { definePluginApp, experimental_Icon as Icon, experimental_FileLink as FileLink, experimental_BranchPicker as BranchPicker, useBbNavigate, useComposer } from "@get-bb/plugin-sdk/app";
+import { definePluginApp, experimental_Icon as Icon, experimental_FileLink as FileLink, experimental_BranchPicker as BranchPicker, useComposer } from "@get-bb/plugin-sdk/app";
 import { buildTree, filterFiles } from "../core/tree";
 import type { ChangedFile, Directory } from "../core/tree";
-import { useChanges, usePatch, useContents } from "./hooks/use-changes";
+import { useChanges } from "./hooks/use-changes";
+import { useFileDiff } from "./hooks/use-file-diff";
 import type { Scope, Snapshot } from "./hooks/use-changes";
 import { useHistory } from "./hooks/use-history";
 import { InteractiveDiff } from "./components/interactive-diff";
 import { ActionIcon } from "./components/action-icon";
 import { automaticBaseHint } from "../core/comparison-base";
 import { FileIcon } from "./components/file-icon";
+import { HeaderButton } from "./components/header-button";
+import { usePreferences } from "./hooks/use-preferences";
+import { mountChatFileLinks } from "./chat-file-links";
+import { useFileRequest } from "./file-navigation";
+import { DiffLoading } from "./components/diff-loading";
 import "./styles.css";
 
 const statusLabels: Record<ChangedFile["changeKind"], string> = { added: "A", copied: "C", deleted: "D", modified: "M", renamed: "R", type_changed: "T" };
@@ -57,22 +63,25 @@ function navigateRows(event: KeyboardEvent<HTMLElement>) {
 }
 
 function FileDiff({ snapshot, file, view, mention }: { snapshot: Snapshot; file: ChangedFile | undefined; view: "unified" | "split"; mention: (path: string) => void }) {
-  const patch = usePatch(snapshot, file);
-  const context = useContents(snapshot, file);
+  const patch = useFileDiff(snapshot, file);
+  const { smoothTransitions } = usePreferences();
   if (!file) return <Notice>Select a file in the tree.</Notice>;
+  const loading = !file.binary && file.loadMode !== "too_large" && !patch?.error && patch?.patch === undefined;
+  const transitionKey = JSON.stringify([snapshot.environmentId, snapshot.target, snapshot.mergeBaseRef, file.path]);
   return <section className="dt-preview" aria-label="Selected file diff">
     <header className="dt-file-header"><FileIcon path={file.path} /><div className="dt-file-path"><strong>{file.path}</strong>{file.previousPath && <small>← {file.previousPath}</small>}</div><Stats {...file} />
       <button type="button" className="dt-action" title="Add file mention to chat" aria-label="Add file mention to chat" onClick={() => mention(file.path)}><ActionIcon kind="quote" /></button>
       {file.changeKind !== "deleted" && <FileLink target={{ kind: "workspace", environmentId: snapshot.environmentId, path: file.path }} className="dt-open" title={snapshot.target.type === "range" ? "Open working-copy file" : "Open file"} aria-label="Open file"><Icon name="ExternalLink" className="dt-icon" /></FileLink>}
     </header>
-    <div className="dt-diff-body">{file.binary ? <Notice>Binary file — no text diff available.</Notice> : file.loadMode === "too_large" ? <Notice>This file exceeds the BB diff limit. Open the file to view it.</Notice> : patch?.error ? <Notice error>{patch.error}</Notice> : patch?.patch === undefined ? <Notice>Loading diff…</Notice> : <>
+    <div className="dt-diff-body" aria-busy={loading}>{file.binary ? <Notice>Binary file — no text diff available.</Notice> : file.loadMode === "too_large" ? <Notice>This file exceeds the BB diff limit. Open the file to view it.</Notice> : patch?.error ? <Notice error>{patch.error}</Notice> : patch?.patch === undefined ? <DiffLoading smooth={smoothTransitions} /> : <div key={transitionKey} className={`dt-diff-reveal${smoothTransitions ? " dt-diff-reveal-smooth" : ""}`}>
       {patch.truncated && <Notice>Partial diff: the BB size limit was reached.</Notice>}
-      {patch.patch ? <InteractiveDiff patch={patch.patch} path={file.path} oldPath={file.previousPath ?? undefined} revision={snapshot.target.type === "range" ? `${snapshot.label} (${snapshot.target.from}..${snapshot.target.to})` : snapshot.label} view={view} contents={context?.contents} contextError={context?.error} /> : <Notice>No text changes (empty file, rename, or permission change).</Notice>}
-    </>}</div>
+      {patch.patch ? <InteractiveDiff patch={patch.patch} path={file.path} oldPath={file.previousPath ?? undefined} revision={snapshot.target.type === "range" ? `${snapshot.label} (${snapshot.target.from}..${snapshot.target.to})` : snapshot.label} view={view} contents={patch.contents} contextError={patch.contextError} /> : <Notice>No text changes (empty file, rename, or permission change).</Notice>}
+    </div>}</div>
   </section>;
 }
 
-function ChangesBrowser({ snapshot }: { snapshot: Snapshot }) {
+function ChangesBrowser({ snapshot, request }: { snapshot: Snapshot; request?: { path: string; sequence: number } }) {
+  const preferences = usePreferences();
   const composer = useComposer();
   const [mentionStatus, setMentionStatus] = useState<{ error: boolean; text: string }>();
   const mention = (path: string) => {
@@ -83,11 +92,19 @@ function ChangesBrowser({ snapshot }: { snapshot: Snapshot }) {
   };
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState(new Set<string>());
-  const [selected, setSelected] = useState<string | null>(null);
-  const [view, setView] = useState<"unified" | "split">("unified");
+  const [selected, setSelected] = useState<string | null>(request?.path ?? null);
+  const [view, setView] = useState<"unified" | "split">(preferences.defaultView);
+  const [manualView, setManualView] = useState(false);
+  useEffect(() => { if (!manualView) setView(preferences.defaultView); }, [preferences.defaultView, manualView]);
+  useEffect(() => {
+    if (!request) return;
+    setQuery(""); setSelected(request.path);
+    setCollapsed(previous => new Set([...previous].filter(path => !request.path.startsWith(`${path}/`))));
+  }, [request]);
   const filtered = useMemo(() => filterFiles(snapshot.files, query), [snapshot.files, query]);
   const tree = useMemo(() => buildTree(filtered), [filtered]);
-  const selectedFile = filtered.find(file => file.path === selected) ?? filtered[0];
+  const missingRequested = selected === request?.path && !snapshot.files.some(file => file.path === selected);
+  const selectedFile = missingRequested ? undefined : filtered.find(file => file.path === selected) ?? filtered[0];
   const toggle = (path: string) => setCollapsed(previous => { const next = new Set(previous); if (!next.delete(path)) next.add(path); return next; });
   return <div className="dt-browser">
     <aside className="dt-sidebar" aria-label="Changed files">
@@ -97,16 +114,24 @@ function ChangesBrowser({ snapshot }: { snapshot: Snapshot }) {
       {mentionStatus && <div className={`dt-context ${mentionStatus.error ? "dt-error" : ""}`} role={mentionStatus.error ? "alert" : "status"}>{mentionStatus.text}</div>}
       <footer className="dt-summary"><Stats {...buildTree(snapshot.files)} /><span>{snapshot.label}</span></footer>
     </aside>
-    <div className="dt-content"><div className="dt-view-toolbar"><span>Changes</span><div className="dt-segment" role="group" aria-label="Diff view"><button type="button" aria-pressed={view === "unified"} onClick={() => setView("unified")}>Unified</button><button type="button" aria-pressed={view === "split"} onClick={() => setView("split")}>Split</button></div></div><FileDiff snapshot={snapshot} file={selectedFile} view={view} mention={mention} /></div>
+    <div className="dt-content"><div className="dt-view-toolbar"><span>Changes</span><div className="dt-segment" role="group" aria-label="Diff view"><button type="button" aria-pressed={view === "unified"} onClick={() => { setView("unified"); setManualView(true); }}>Unified</button><button type="button" aria-pressed={view === "split"} onClick={() => { setView("split"); setManualView(true); }}>Split</button></div></div>{missingRequested ? <Notice><strong>{selected}</strong><p>No changes for this file in the selected comparison.</p><FileLink target={{ kind: "workspace", environmentId: snapshot.environmentId, path: selected! }}>Open file in BB</FileLink></Notice> : <FileDiff snapshot={snapshot} file={selectedFile} view={view} mention={mention} />}</div>
   </div>;
 }
 
 export function DiffTreePanel({ threadId }: { threadId: string }) {
+  const preferences = usePreferences();
+  const request = useFileRequest(threadId);
+  const previousRequest = useRef(request);
   const [scope, setScope] = useState<Scope>("all");
   const [base, setBase] = useState("");
   const [revision, setRevision] = useState(0);
   const [count, setCount] = useState(1);
   const [commit, setCommit] = useState("");
+  useEffect(() => {
+    if (previousRequest.current === request) return;
+    previousRequest.current = request;
+    if (request) { setScope("all"); setRevision(value => value + 1); }
+  }, [request]);
   const { snapshot, error, environment, automatic } = useChanges(threadId, scope, base, revision, count, commit);
   const history = useHistory(scope === "commit" ? environment?.id : undefined, revision);
   useEffect(() => {
@@ -117,10 +142,11 @@ export function DiffTreePanel({ threadId }: { threadId: string }) {
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
   useEffect(() => {
+    if (!preferences.refreshOnReturn) return;
     const onVisible = () => { if (document.visibilityState === "visible") refreshRef.current(); };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
-  }, []);
+  }, [preferences.refreshOnReturn]);
   return <div className="dt-root">
     <header className="dt-toolbar">
       <div className="dt-brand"><Icon name="GitBranch" className="dt-icon" /><strong>Diff Tree</strong></div>
@@ -147,14 +173,11 @@ export function DiffTreePanel({ threadId }: { threadId: string }) {
     {scope === "commit" && history.hasMore && <p className="dt-context">Showing the 200 most recent commits along first-parent history.</p>}
     {scope === "commit" && history.error && <Notice error>{history.error}</Notice>}
     {snapshot?.truncated && <Notice>The BB file limit was reached; some changed files may be missing.</Notice>}
-    {error ? <Notice error>{error}</Notice> : snapshot ? <ChangesBrowser key={threadId} snapshot={snapshot} /> : <Notice>{scope === "commit" ? history.loading ? "Loading commit history…" : "Choose a commit to view its changes." : "Loading changes…"}</Notice>}
+    {error ? <Notice error>{error}</Notice> : snapshot ? <ChangesBrowser key={threadId} snapshot={snapshot} request={request} /> : <Notice>{scope === "commit" ? history.loading ? "Loading commit history…" : "Choose a commit to view its changes." : "Loading changes…"}</Notice>}
   </div>;
 }
-function HeaderButton() {
-  const navigate = useBbNavigate();
-  return <button type="button" className="dt-launch" aria-label="Open Diff Tree" title="Diff Tree — browse changes by folder" onClick={() => navigate.openThreadPanel({ actionId: "changes", title: "Diff Tree" })}><Icon name="GitBranch" className="dt-icon" /></button>;
-}
 export default definePluginApp(app => {
+  app.contentScripts.register({ id: "chat-file-links", mount: () => mountChatFileLinks() });
   app.slots.threadPanelAction({ id: "changes", title: "Diff Tree", icon: "GitBranch", layout: "flush", component: DiffTreePanel });
   app.slots.experimental_threadHeaderAction({ id: "open", title: "Diff Tree", component: HeaderButton });
 });

@@ -7,8 +7,10 @@ import { ActionIcon } from "./action-icon";
 import { selectedDiffQuote } from "../../core/diff-selection";
 import { contextualDiff } from "../../core/diff-context";
 import type { DiffContents } from "../../core/diff-context";
+import { usePreferences } from "../hooks/use-preferences";
 
 export function InteractiveDiff({ patch, path, oldPath, revision, view, contents, contextError }: { patch: string; path: string; oldPath?: string; revision: string; view: "split" | "unified"; contents?: DiffContents; contextError?: string }) {
+  const { fontSize, contextLines } = usePreferences();
   const { file, error: hydrationError } = useMemo(() => contextualDiff(patch, contents), [patch, contents]);
   const composer = useComposer();
   const codeTheme = experimental_useCodeTheme();
@@ -43,9 +45,9 @@ export function InteractiveDiff({ patch, path, oldPath, revision, view, contents
     diffStyle: view, overflow: "scroll" as const, disableFileHeader: true, disableLineNumbers: false,
     theme: themeName, themeType: codeTheme.mode,
     enableLineSelection: true, enableGutterUtility: true, lineHoverHighlight: "number" as const,
-    hunkSeparators: "line-info" as const, expansionLineCount: 30,
+    hunkSeparators: "line-info" as const, expansionLineCount: contextLines,
     onLineSelectionStart: startSelection, onLineSelectionChange: setRange, onLineSelectionEnd: show, onGutterUtilityClick: show,
-  }), [view, themeName, codeTheme.mode, startSelection, show]);
+  }), [view, themeName, codeTheme.mode, startSelection, show, contextLines]);
   const add = () => {
     if (!file || !range) return;
     try {
@@ -54,7 +56,7 @@ export function InteractiveDiff({ patch, path, oldPath, revision, view, contents
     } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
   };
   if (!file || !file.hunks.length) return <NativeDiff patch={patch} path={path} view={view} />;
-  return <div className="dt-interactive-diff" ref={root} onPointerDownCapture={capture} onPointerMoveCapture={capture} onPointerUpCapture={capture} style={{ "--diffs-font-size": "12px", "--diffs-line-height": "18px" } as CSSProperties}>
+  return <div className="dt-interactive-diff" ref={root} onPointerDownCapture={capture} onPointerMoveCapture={capture} onPointerUpCapture={capture} style={{ "--diffs-font-size": `${fontSize}px`, "--diffs-line-height": `${Math.round(fontSize * 1.5)}px` } as CSSProperties}>
     {(contextError || hydrationError) && <div className="dt-context" role="status">Unchanged lines unavailable: {contextError || hydrationError}</div>}
     <FileDiff fileDiff={file} selectedLines={range} options={options} />
     {menu && range && <div className="dt-line-menu" data-quote-action="" style={{ left: menu.x, top: menu.y }}>

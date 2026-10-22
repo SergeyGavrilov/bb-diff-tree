@@ -1,4 +1,5 @@
 import { getIcon } from "seti-file-icons";
+import { usePreferences } from "../hooks/use-preferences";
 
 const colors = {
   blue: "#519aba", grey: "var(--muted-foreground)", "grey-light": "var(--muted-foreground)",
@@ -15,7 +16,9 @@ export function fileIcon(path: string) {
 }
 
 export function FileIcon({ path }: { path: string }) {
+  const { fileIcons } = usePreferences();
   const icon = fileIcon(path);
+  if (!fileIcons) return null;
   // Only trusted, bundled SVG from Seti is inserted; filenames never become markup.
   return <span className="dt-icon dt-file-icon" aria-hidden="true" style={{ color: icon.color }} dangerouslySetInnerHTML={{ __html: icon.svg }} />;
 }

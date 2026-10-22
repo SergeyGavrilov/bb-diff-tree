@@ -1,7 +1,9 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { hostContract, rpcContract } from "../shared/contracts";
+import { settingDescriptors } from "../shared/settings";
 
 export default function plugin(bb: BbPluginApi) {
+  bb.settings.define(settingDescriptors);
   const lifecycle = new AbortController();
   bb.onDispose(() => lifecycle.abort());
   const host = bb.hosts.experimental_client({ contract: hostContract });

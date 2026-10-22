@@ -77,3 +77,19 @@
 .dt-line-menu .dt-action { height: 30px; white-space: nowrap; }
 .dt-line-menu .dt-error { display: block; max-width: 240px; padding: 4px 8px; font-size: 12px; }
 .dt-line-feedback { position: sticky; bottom: 8px; display: block; width: fit-content; margin: 8px 12px; padding: 4px 8px; background: var(--card); border: 1px solid var(--border); border-radius: 5px; font-size: 12px; color: var(--muted-foreground); }
+.dt-chat-open { display: inline-flex; vertical-align: middle; align-items: center; justify-content: center; width: 24px; height: 24px; margin-left: 3px; padding: 4px; border: 1px solid var(--border); border-radius: 5px; background: var(--background); color: var(--muted-foreground); cursor: pointer; }
+.dt-chat-open svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.dt-chat-open:hover { background: var(--accent); color: var(--accent-foreground); }
+.dt-chat-open:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.dt-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.dt-diff-skeleton { padding: 16px 12px; max-width: 840px; animation: dt-skeleton-in 160ms ease-out 100ms both; }
+.dt-placeholder-row { display: flex; align-items: center; gap: 16px; height: 22px; }
+.dt-placeholder-gutter, .dt-placeholder-code { height: 9px; border-radius: 3px; background: color-mix(in srgb, var(--foreground) 9%, transparent); }
+.dt-placeholder-gutter { width: 20px; flex-shrink: 0; }
+.dt-placeholder-code { max-width: calc(100% - 36px); }
+.dt-diff-reveal-smooth { animation: dt-diff-in 160ms ease-out; }
+@keyframes dt-skeleton-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dt-diff-in { from { opacity: .2; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .dt-diff-skeleton, .dt-diff-reveal-smooth { animation: none; }
+}

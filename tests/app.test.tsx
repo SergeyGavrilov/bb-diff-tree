@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, waitFor } from "@testing-library/react";
-import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
+import { act, fireEvent, waitFor } from "@testing-library/react";
+import { loadPluginApp, mountPluginContentScripts, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import type { useSdk } from "@get-bb/plugin-sdk/app";
 import type { ChangedFile } from "../src/core/tree";
 import { environmentFixture } from "./fixtures/environment";
+import { clearFileRequests, requestFile } from "../src/app/file-navigation";
+import { changesRow } from "./fixtures/chat-changes";
 
 // jsdom lacks these browser APIs. Keep Pierre's real rendering and pointer handlers.
 beforeAll(() => {
@@ -31,11 +33,12 @@ const statusResult: Awaited<ReturnType<ReturnType<typeof useSdk>["environments"]
   },
 };
 const cleanups: (() => void)[] = [];
-afterEach(() => { cleanups.splice(0).forEach(fn => fn()); });
-async function open(files: ChangedFile[], overrides: Record<string, unknown> = {}, rpc: Record<string, (input: any) => any> = {}) {
+afterEach(() => { cleanups.splice(0).forEach(fn => fn()); clearFileRequests(); });
+async function open(files: ChangedFile[], overrides: Record<string, unknown> = {}, rpc: Record<string, (input: any) => any> = {}, settings?: Record<string, string | number | boolean>) {
   const app = await loadPluginApp(() => import("../src/app/index"));
   const slot = renderSlot(app.threadPanelActions[0]!, { threadId: "thread-1", params: null }, {
     rpc,
+    settings,
     composer: { text: "Existing draft", scope: { kind: "thread", threadId: "thread-1" } },
     sdk: {
       threads: { get: async () => makeThreadResponse({ environmentId: "env-1" }) },
@@ -55,6 +58,89 @@ async function open(files: ChangedFile[], overrides: Record<string, unknown> = {
 }
 
 describe("Diff Tree panel", () => {
+  it.each([true, false])("uses optional smooth loading without delaying the diff (enabled=%s)", async smoothTransitions => {
+    let finish!: (value: unknown) => void;
+    const pending = new Promise(resolve => { finish = resolve; });
+    const slot = await open([file("a.ts")], { diffPatch: async () => pending }, {}, { smoothTransitions });
+    expect(slot.container.querySelector(".dt-diff-body")?.getAttribute("aria-busy")).toBe("true");
+    if (smoothTransitions) {
+      expect(slot.getByRole("status", { name: "Loading diff" }).className).toBe("dt-diff-skeleton");
+      expect(slot.getByText("Loading diff…").className).toBe("dt-sr-only");
+    } else {
+      expect(slot.container.querySelector(".dt-diff-skeleton")).toBeNull();
+      expect(slot.getByText("Loading diff…").className).toBe("dt-notice");
+    }
+    await act(async () => { finish({ outcome: "available", patches: [patch("a.ts")] }); });
+    await waitFor(() => expect(slot.container.querySelector("diffs-container")?.shadowRoot?.textContent).toContain("new"));
+    expect(slot.container.querySelector(".dt-diff-body")?.getAttribute("aria-busy")).toBe("false");
+    expect(slot.queryByText("Loading diff…")).toBeNull();
+    expect(!!slot.container.querySelector(".dt-diff-reveal-smooth")).toBe(smoothTransitions);
+  });
+
+  it("shows loading failures directly when smooth transitions are enabled", async () => {
+    const slot = await open([file("a.ts")], { diffPatch: async () => { throw new Error("Diff unavailable"); } }, {}, { smoothTransitions: true });
+    expect((await slot.findByRole("alert")).textContent).toBe("Diff unavailable");
+    expect(slot.container.querySelector(".dt-diff-skeleton")).toBeNull();
+    expect(slot.container.querySelector(".dt-diff-body")?.getAttribute("aria-busy")).toBe("false");
+  });
+
+  it.each([ ["icon", "link"], ["diff-tree", "link"], ["icon", "card"], ["diff-tree", "card"] ])("opens chat files through the registered header and reuses one tab in %s mode (%s)", async (mode, surface) => {
+    const app = await loadPluginApp(() => import("../src/app/index"));
+    const scripts = await mountPluginContentScripts(app, { pluginId: "diff-tree" });
+    const header = renderSlot(app.threadHeaderActions[0]!, { threadId: "thread-1", projectId: "project-1", isCompactViewport: false }, {
+      settings: { chatFileLinks: mode },
+      openThreadPanel: () => true,
+      sdk: { threads: { get: async () => makeThreadResponse({ environmentId: "env-1" }) }, environments: { get: async () => environmentFixture() } },
+    });
+    const pane = document.createElement("div"); pane.dataset.splitPaneId = "one"; document.body.append(pane); pane.append(header.container);
+    const message = document.createElement("div"); message.dataset.messageColumn = ""; pane.append(message);
+    const link = document.createElement("a"); link.href = "file:///workspace/src/a.ts"; link.target = "_blank"; link.textContent = "a.ts";
+    const card = surface === "card" ? changesRow(message, "src/a.ts") : null;
+    if (!card) message.append(link);
+    const control = card?.button ?? link;
+    try {
+      await waitFor(() => expect(header.inspection.sdkCalls.some(call => call.method === "environments.get")).toBe(true));
+      await act(async () => {});
+      if (mode === "icon") {
+        await waitFor(() => expect(message.querySelector(".dt-chat-open")).toBeTruthy());
+        fireEvent.click(message.querySelector(".dt-chat-open")!);
+      } else expect(fireEvent.click(control)).toBe(false);
+      expect(header.inspection.navigateCalls.at(-1)).toMatchObject({ method: "openThreadPanel", options: { actionId: "changes", title: "Diff Tree" } });
+      if (card) { card.button.title = "Open src/b.ts"; card.button.setAttribute("aria-label", card.button.title); card.filename.title = "src/b.ts"; }
+      else link.href = "file:///workspace/src/b.ts";
+      fireEvent.click(mode === "icon" ? message.querySelector(".dt-chat-open")! : control);
+      expect(header.inspection.navigateCalls.filter(call => call.method === "openThreadPanel")).toHaveLength(2);
+      expect(header.inspection.navigateCalls.at(-1)).toEqual(header.inspection.navigateCalls[0]);
+    } finally { header.lifecycle.unmount(); await scripts.lifecycle.dispose(); pane.remove(); }
+  });
+
+  it("applies display preferences while keeping manual layout switching available", async () => {
+    const slot = await open([file("a.ts")], {}, {}, { fileIcons: false, defaultView: "split", fontSize: 16, refreshOnReturn: false });
+    await waitFor(() => expect(slot.getByRole("button", { name: "Split", pressed: true })).toBeTruthy());
+    expect(slot.container.querySelector(".dt-file-icon")).toBeNull();
+    await waitFor(() => expect((slot.container.querySelector(".dt-interactive-diff") as HTMLElement)?.style.getPropertyValue("--diffs-font-size")).toBe("16px"));
+    fireEvent.click(slot.getByRole("button", { name: "Unified" }));
+    expect(slot.getByRole("button", { name: "Unified", pressed: true })).toBeTruthy();
+    fireEvent(document, new Event("visibilitychange"));
+    expect(slot.inspection.sdkCalls.filter(call => call.method === "threads.get")).toHaveLength(1);
+    fireEvent.click(slot.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(slot.inspection.sdkCalls.filter(call => call.method === "environments.diffFiles")).toHaveLength(2));
+  });
+
+  it("selects chat targets, opens their folders and makes unchanged targets explicit", async () => {
+    const slot = await open([file("a.ts"), file("src/b.py")]);
+    fireEvent.click(slot.getByRole("button", { name: "Collapse all" }));
+    fireEvent.change(slot.getByRole("textbox", { name: "Search files" }), { target: { value: "a.ts" } });
+    act(() => requestFile("thread-1", "src/b.py"));
+    await waitFor(() => expect(slot.getByRole("button", { name: /b.py/ }).getAttribute("aria-current")).toBe("true"));
+    expect((slot.getByRole("textbox", { name: "Search files" }) as HTMLInputElement).value).toBe("");
+    act(() => requestFile("thread-1", "unchanged.py"));
+    await slot.findByText("No changes for this file in the selected comparison.");
+    expect(slot.getByRole("link", { name: "Open file in BB" })).toBeTruthy();
+    fireEvent.click(slot.getByRole("button", { name: /a.ts/ }));
+    expect(slot.queryByText("No changes for this file in the selected comparison.")).toBeNull();
+  });
+
   it.each(["header", "cmd", "ctrl"])("adds a workspace mention through %s without submitting or changing selection", async gesture => {
     const slot = await open([file("a.ts"), file("src/b.py")]);
     if (gesture === "header") fireEvent.click(slot.getByRole("button", { name: "Add file mention to chat" }));
@@ -279,6 +365,62 @@ describe("Diff Tree panel", () => {
     await waitFor(() => expect(slot.inspection.sdkCalls.filter(call => call.method === "environments.diffFiles")).toHaveLength(2));
     expect(slot.getByRole("button", { name: /src/ }).getAttribute("aria-expanded")).toBe("false");
     expect(slot.getByText("src/b.ts")).toBeTruthy();
+  });
+
+  it("keeps the rendered diff while a chat navigation refresh is pending, then updates it without a loading flash", async () => {
+    let refreshing = false;
+    let finish!: (value: unknown) => void;
+    const pending = new Promise(resolve => { finish = resolve; });
+    const slot = await open([file("a.ts")], {
+      diffPatch: async () => refreshing ? pending : { outcome: "available", patches: [patch("a.ts")] },
+      diffFile: async ({ side }: { side: string }) => ({ path: "a.ts", content: side === "old" ? "old\n" : refreshing ? "updated\n" : "new\n", contentEncoding: "utf8", sizeBytes: 8 }),
+    });
+    await waitFor(() => expect(slot.container.querySelector("diffs-container")?.shadowRoot?.textContent).toContain("new"));
+    const viewer = slot.container.querySelector(".dt-interactive-diff");
+    refreshing = true;
+    act(() => requestFile("thread-1", "a.ts"));
+    await waitFor(() => expect(slot.inspection.sdkCalls.filter(call => call.method === "environments.diffPatch")).toHaveLength(2));
+    expect(slot.queryByText("Loading diff…")).toBeNull();
+    expect(slot.container.querySelector(".dt-interactive-diff")).toBe(viewer);
+    expect(slot.container.querySelector("diffs-container")?.shadowRoot?.textContent).toContain("new");
+    expect(slot.queryByText(/File contents changed/)).toBeNull();
+    await act(async () => { finish({ outcome: "available", patches: [{ ...patch("a.ts"), patch: patch("a.ts").patch.replace("+new", "+updated") }] }); });
+    await waitFor(() => expect(slot.container.querySelector("diffs-container")?.shadowRoot?.textContent).toContain("updated"));
+    expect(slot.container.querySelector(".dt-interactive-diff")).toBe(viewer);
+    expect(slot.queryByText("Loading diff…")).toBeNull();
+    expect(slot.queryByText(/File contents changed/)).toBeNull();
+  });
+
+  it("opens a new viewer directly on the chat target without loading a default file or refreshing twice", async () => {
+    act(() => requestFile("thread-1", "src/b.py"));
+    const slot = await open([file("a.ts"), file("src/b.py")]);
+    await waitFor(() => expect(slot.container.querySelector("diffs-container")?.shadowRoot?.textContent).toContain("new"));
+    expect(slot.getByRole("button", { name: /b.py/ }).getAttribute("aria-current")).toBe("true");
+    expect(slot.inspection.sdkCalls.filter(call => call.method === "environments.diffFiles")).toHaveLength(1);
+    expect(slot.inspection.sdkCalls.filter(call => call.method === "environments.diffPatch").map(call => call.args[0])).toEqual([expect.objectContaining({ paths: ["src/b.py"] })]);
+  });
+
+  it("discards a pending background refresh after switching the comparison branch", async () => {
+    let refreshing = false;
+    let finish!: (value: unknown) => void;
+    const pending = new Promise(resolve => { finish = resolve; });
+    const slot = await open([file("a.ts")], {
+      diffFiles: async ({ mergeBaseBranch }: { mergeBaseBranch: string }) => ({ ...filesResult([file("a.ts")]), mergeBaseRef: mergeBaseBranch === "release" ? "release-ref" : "abc" }),
+      diffPatch: async ({ target }: { target: { mergeBaseBranch: string } }) => target.mergeBaseBranch === "release"
+        ? { outcome: "available", patches: [{ ...patch("a.ts"), patch: patch("a.ts").patch.replace("+new", "+release") }] }
+        : refreshing ? pending : { outcome: "available", patches: [patch("a.ts")] },
+      diffFile: async ({ side, mergeBaseRef }: { side: string; mergeBaseRef: string }) => ({ path: "a.ts", content: side === "old" ? "old\n" : mergeBaseRef === "release-ref" ? "release\n" : "new\n", contentEncoding: "utf8", sizeBytes: 8 }),
+    });
+    await waitFor(() => expect(slot.container.querySelector("diffs-container")?.shadowRoot?.textContent).toContain("new"));
+    refreshing = true;
+    fireEvent.click(slot.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(slot.inspection.sdkCalls.filter(call => call.method === "environments.diffPatch")).toHaveLength(2));
+    fireEvent.change(slot.getByRole("textbox", { name: "Base" }), { target: { value: "release" } });
+    expect(slot.container.querySelector(".dt-interactive-diff")).toBeNull();
+    await waitFor(() => expect(slot.container.querySelector("diffs-container")?.shadowRoot?.textContent).toContain("release"));
+    await act(async () => { finish({ outcome: "available", patches: [{ ...patch("a.ts"), patch: patch("a.ts").patch.replace("+new", "+stale") }] }); });
+    expect(slot.container.querySelector("diffs-container")?.shadowRoot?.textContent).toContain("release");
+    expect(slot.container.querySelector("diffs-container")?.shadowRoot?.textContent).not.toContain("stale");
   });
 
   it("shows non-Git environments as an actionable error", async () => {

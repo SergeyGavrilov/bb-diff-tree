@@ -12,6 +12,8 @@ Click, Shift-click, or drag across line numbers, then choose **Add to chat**. Th
 
 ## Requirements and limits
 
+The local, unreleased checkout also offers **Settings → Diff Tree** for chat file-link behavior (BB default, a separate icon, or direct opening in Diff Tree), file icons, initial layout, code font size, context expansion size, and refresh on return. Optional chat routing uses a content script for workspace links and Open buttons in GenUI Changes cards. It reuses the viewer, selects the file, and preserves BB's modified-click behavior and the card's inline diff expansion. These settings are not part of the published v0.1.0 release.
+
 Requires BB 0.46.1+, Plugin SDK 0.6.49+, and a Git workspace. Commit history runs read-only Git commands on the workspace's enrolled BB host. No API key, paid account, external service, or icon download is needed.
 
 This is a separate thread panel. Binary and oversized files show notices; full-file context is limited to 512 KiB per version and chat quotes to 500 diff rows. The plugin does not stage files, revert changes, or create commits.

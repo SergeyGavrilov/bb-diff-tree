@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { useRpc, useSdk } from "@get-bb/plugin-sdk/app";
 import type { ChangedFile } from "../../core/tree";
-import type { DiffContents } from "../../core/diff-context";
 import { automaticBase } from "../../core/comparison-base";
 import type { AutomaticBase, Environment } from "../../core/comparison-base";
 import type { rpcContract } from "../../shared/contracts";
@@ -70,74 +69,4 @@ export function useChanges(threadId: string, scope: Scope, base: string, revisio
     return () => controller.abort();
   }, [sdk, rpc, threadId, scope, base, key, revision, count, commit]);
   return state.key === key ? state : { key, environment: state.threadId === threadId ? state.environment : undefined, automatic: state.threadId === threadId ? state.automatic : undefined };
-}
-
-export function usePatch(snapshot: Snapshot, file: ChangedFile | undefined) {
-  const sdk = useSdk();
-  const rpc = useRpc<typeof rpcContract>();
-  const [state, setState] = useState<{ snapshot: Snapshot; path: string; patch?: string; truncated?: boolean; error?: string }>();
-  useEffect(() => {
-    if (!file || file.binary || file.loadMode === "too_large") return;
-    const controller = new AbortController();
-    const signal = controller.signal;
-    const selectedFile = file;
-    async function load() {
-      const initial = snapshot.initialPatches.find(patch => patch.path === selectedFile.path);
-      if (initial) {
-        setState({ snapshot, ...initial });
-        return;
-      }
-      if (snapshot.target.type === "range") {
-        const patch = await rpc.call("committedPatch", { environmentId: snapshot.environmentId, from: snapshot.target.from, to: snapshot.target.to, path: selectedFile.path, previousPath: selectedFile.previousPath });
-        if (!signal.aborted) setState({ snapshot, ...patch });
-        return;
-      }
-      const result = await sdk.environments.diffPatch({ environmentId: snapshot.environmentId, paths: [selectedFile.path], target: snapshot.target, signal });
-      if (result.outcome === "not_applicable") throw new Error(result.message);
-      if (result.outcome === "unavailable") throw new Error(result.failure.message);
-      const patch = result.patches.find(item => item.path === selectedFile.path);
-      if (!patch) throw new Error("The file has changed. Refresh the changes list.");
-      if (!signal.aborted) setState({ snapshot, ...patch });
-    }
-    load().catch(cause => { if (!signal.aborted) setState({ snapshot, path: selectedFile.path, error: message(cause) }); });
-    return () => controller.abort();
-  }, [sdk, rpc, snapshot, file]);
-  return state?.snapshot === snapshot && state.path === file?.path ? state : undefined;
-}
-
-
-export function useContents(snapshot: Snapshot, file: ChangedFile | undefined) {
-  const sdk = useSdk();
-  const rpc = useRpc<typeof rpcContract>();
-  const [state, setState] = useState<{ snapshot: Snapshot; path: string; contents?: DiffContents; error?: string }>();
-  useEffect(() => {
-    if (!file || file.binary || file.loadMode === "too_large") return;
-    const controller = new AbortController();
-    const signal = controller.signal;
-    const selectedFile = file;
-    async function load() {
-      let contents: DiffContents;
-      if (snapshot.target.type === "range") {
-        contents = await rpc.call("committedContents", { environmentId: snapshot.environmentId, from: snapshot.target.from, to: snapshot.target.to, path: selectedFile.path, previousPath: selectedFile.previousPath });
-      } else {
-        const target = snapshot.target.type === "uncommitted" ? { target: "uncommitted" as const }
-          : snapshot.mergeBaseRef ? { target: "all" as const, mergeBaseRef: snapshot.mergeBaseRef }
-          : null;
-        if (!target) throw new Error("Refresh to resolve the comparison revision.");
-        const read = async (side: "old" | "new") => {
-          if (side === "old" && selectedFile.changeKind === "added" || side === "new" && selectedFile.changeKind === "deleted") return "";
-          const result = await sdk.environments.diffFile({ environmentId: snapshot.environmentId, ...target, path: selectedFile.path, side, signal });
-          if (result.sizeBytes > 512 * 1024) throw new Error("Context exceeds the 512 KiB per-file limit.");
-          if (result.contentEncoding !== "utf8" || result.content.includes("\0")) throw new Error("Context is unavailable for binary files.");
-          return result.content;
-        };
-        const [old, next] = await Promise.all([read("old"), read("new")]);
-        contents = { old, next };
-      }
-      if (!signal.aborted) setState({ snapshot, path: selectedFile.path, contents });
-    }
-    load().catch(cause => { if (!signal.aborted) setState({ snapshot, path: selectedFile.path, error: message(cause) }); });
-    return () => controller.abort();
-  }, [sdk, rpc, snapshot, file]);
-  return state?.snapshot === snapshot && state.path === file?.path ? state : undefined;
 }
