@@ -2,6 +2,13 @@ name: Publish GitHub release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag
+        required: true
+        default: v0.1.0
+        type: string
 permissions:
   contents: read
 jobs:
@@ -9,14 +16,18 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - name: Match tag to package version
-        run: node -e 'const p = require("./package.json"); if (process.env.GITHUB_REF_NAME !== `v${p.version}`) process.exit(1)'
+        run: node -e 'const p = require("./package.json"); if (process.env.RELEASE_TAG !== `v${p.version}`) process.exit(1)'
       - run: npm ci --ignore-scripts
       - run: npm run check
       - run: npm exec --yes --ignore-scripts --package=bb-app@0.46.1 -- bb plugin build .
@@ -25,4 +36,4 @@ jobs:
       - name: Publish the validated release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" ./*.tgz --verify-tag --title "Diff Tree $GITHUB_REF_NAME" --notes-file release/github-notes.md
+        run: gh release create "$RELEASE_TAG" ./*.tgz --verify-tag --title "Diff Tree $RELEASE_TAG" --notes-file release/github-notes.md

@@ -46,6 +46,8 @@ The `Publish GitHub release` workflow builds, tests, validates, packs, and publi
 
 Verify the tag with `git ls-remote --tags` and install the public Git source through BB. Semver tags are immutable: ship a new version for fixes instead of moving a tag.
 
+If a tag push did not trigger the workflow, run **Publish GitHub release** manually from the Actions page on `main`, entering the existing tag. The workflow checks out that tag and validates its package version before publishing. This also avoids moving an existing tag when recovering a missed trigger.
+
 CI uses Node 22 and the pinned official `bb-app@0.46.1` CLI. Keep its version and the supported SDK/Pierre declarations aligned when upgrading BB support. Check both the CI and release workflow results for every release.
 
 ## Prepare the BB Community submission
