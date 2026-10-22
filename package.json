@@ -1,0 +1,79 @@
+{
+  "name": "bb-plugin-diff-tree",
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "bb": ">=0.46.1",
+    "bbPluginSdk": ">=0.6.49"
+  },
+  "bb": {
+    "name": "Diff Tree",
+    "description": "Review Git changes by folder, compare commits, and bring selected code into your BB chat.",
+    "branding": {
+      "icon": "./assets/icon.svg"
+    },
+    "server": "./src/server/index.ts",
+    "app": "./src/app/index.tsx",
+    "skills": [
+      "skills"
+    ],
+    "host": "./src/host/index.ts"
+  },
+  "devDependencies": {
+    "@get-bb/plugin-sdk": "0.6.49",
+    "@pierre/diffs": "^1.2.9",
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "jsdom": "^26.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.12"
+  },
+  "scripts": {
+    "build": "bb plugin build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test",
+    "check:release": "node scripts/check-release.mjs"
+  },
+  "dependencies": {
+    "seti-file-icons": "0.0.8",
+    "zod": "^4.6.7"
+  },
+  "description": "Review Git changes by folder, compare commits, and bring selected code into your BB chat.",
+  "license": "MIT",
+  "author": {
+    "name": "Sergey Gavrilov",
+    "url": "https://github.com/SergeyGavrilov"
+  },
+  "keywords": [
+    "bb-plugin",
+    "git",
+    "diff",
+    "code-review",
+    "file-tree"
+  ],
+  "files": [
+    "dist/",
+    "src/",
+    "assets/",
+    "skills/",
+    "PLUGIN_OVERVIEW.md",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "docs/screenshots/overview.png"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SergeyGavrilov/bb-diff-tree.git"
+  },
+  "homepage": "https://github.com/SergeyGavrilov/bb-diff-tree#readme",
+  "bugs": {
+    "url": "https://github.com/SergeyGavrilov/bb-diff-tree/issues"
+  }
+}

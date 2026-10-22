@@ -1,0 +1,21 @@
+name: Check
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+      - name: Build with the supported BB CLI
+        run: npm exec --yes --ignore-scripts --package=bb-app@0.46.1 -- bb plugin build .
+      - run: npm run check:release

@@ -1,0 +1,20 @@
+{
+  "id": "diff-tree",
+  "displayName": "Diff Tree",
+  "description": "Review Git changes by folder and bring selected code into your BB chat. Compare branch changes, the working copy, recent commits, or a single commit in unified or split view. Expand unchanged context and add file mentions without sending the draft. Requires BB 0.46.1+, SDK 0.6.49+, and Git on the workspace host; no external service or account is needed.",
+  "tags": [
+    "git",
+    "diff",
+    "code-review",
+    "commits",
+    "file-tree",
+    "chat-context"
+  ],
+  "author": {
+    "name": "Sergey Gavrilov",
+    "github": "SergeyGavrilov",
+    "url": "https://github.com/SergeyGavrilov"
+  },
+  "category": "code-and-reviews",
+  "overview": "./overview/diff-tree.md"
+}
