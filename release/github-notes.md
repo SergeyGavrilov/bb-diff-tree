@@ -1,13 +1,12 @@
-# Diff Tree v0.1.0
+# Diff Tree v0.1.1
 
-Review Git changes in BB with a searchable directory tree beside a unified or split diff.
+Customize your diff viewer and open workspace files from chat in Diff Tree.
 
-- Browse all branch changes, uncommitted work, the last 1–100 commits, or one selected commit.
-- Compare against BB's recorded creation branch or pick a branch manually.
-- Expand unchanged lines above, below, and between hunks.
-- Select lines with click, Shift-click, or drag, then add their diff fragment to the chat draft.
-- Mention a file with the header button or Cmd/Ctrl+click in the tree.
-- Recognize file types with Seti icons and keep review state across refreshes.
+- Choose BB's default file links, a separate Diff Tree button, or direct opening in Diff Tree. Chat routing is opt-in and also supports Open buttons in GenUI Changes/Commits cards.
+- Reuse the viewer tab, select the requested file, reveal its parent folders, and show a native-file fallback when the comparison has no changes for that path.
+- Configure file icons, initial Unified/Split layout, code font size, unchanged-line expansion size, and refresh on return under Settings → Diff Tree.
+- Replace visible loading text with a quiet skeleton and a short fade. Smooth diff transitions are optional and honor reduced-motion preferences.
+- Keep loaded diffs visible during background refreshes and update the patch and full context together, avoiding loading flashes and duplicate initial requests.
 
 Requires BB 0.46.1+, Plugin SDK 0.6.49+, and Git on the workspace host for history. No external service or account is required.
 
@@ -17,4 +16,6 @@ Install the release with:
 bb plugin install 'git:https://github.com/SergeyGavrilov/bb-diff-tree.git@^0.1.0'
 ```
 
-See README for local installation and supported limits.
+Existing Plugin Hub installs track the compatible `^0.1.0` range. Refresh the plugin's update check in BB to select this release.
+
+Optional chat routing uses a content script limited to workspace links and supported chat file controls. BB's default link behavior remains the initial setting. See README for supported controls, settings, and limits.

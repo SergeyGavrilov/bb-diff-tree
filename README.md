@@ -71,9 +71,9 @@ The sidebar resizes horizontally in wide panels and moves above the diff in narr
 
 Chat actions append to the existing draft and focus the composer. They never submit it. Historical diff quotes identify the selected revisions; **Open working-copy file** opens the current workspace file.
 
-## Settings (unreleased)
+## Settings
 
-The development checkout adds settings under **Settings → Diff Tree** (also available on the installed plugin's detail page). These changes are not included in the published v0.1.0 release. BB saves the preferences and applies them without a plugin reload.
+Available since v0.1.1 under **Settings → Diff Tree** (also on the installed plugin's detail page). BB saves the preferences and applies them without a plugin reload.
 
 - **File links in chat:** keep **BB default**, **Show a Diff Tree button beside links**, or **Open in Diff Tree** on ordinary clicks. BB default is the initial setting.
 - **Show file type icons:** enabled by default; disabling it hides file icons in both the tree and filename header.

@@ -1,8 +1,8 @@
 # Releasing Diff Tree
 
-The first release is prepared as **0.1.0**, package **bb-plugin-diff-tree**, plugin ID **diff-tree**, Git tag **v0.1.0**. The distribution source is a public GitHub repository with the semver range **^0.1.0**; publishing to npm is optional and is not part of this release plan.
+The current release is **0.1.1**, package **bb-plugin-diff-tree**, plugin ID **diff-tree**, Git tag **v0.1.1**. The distribution source is a public GitHub repository with the semver range **^0.1.0**; publishing to npm is optional and is not part of this release plan.
 
-## Before the first release
+## Before each release
 
 The repository is `https://github.com/SergeyGavrilov/bb-diff-tree`, with SSH origin `git@github.com:SergeyGavrilov/bb-diff-tree.git`. Package metadata and the README use that destination. The listing author is `SergeyGavrilov`; verify the authenticated submitting account before opening the marketplace PR. Releases are published from reviewed, immutable semver tags.
 
@@ -40,7 +40,7 @@ Once the destination and screenshots are ready:
 2. Commit the reviewed release files and record `git rev-parse HEAD`.
 3. Confirm the authenticated account with `gh auth status` and `gh api user --jq .login`.
 4. Confirm the repository is public and the intended remote matches `git remote -v`.
-5. After explicit release approval, create the annotated `v0.1.0` tag and push the reviewed main commit and tag.
+5. After explicit release approval, create the annotated `v0.1.1` tag and push the reviewed main commit and tag.
 
 The `Publish GitHub release` workflow builds, tests, validates, packs, and publishes a GitHub release when the approved tag is pushed. The release uses `release/github-notes.md` and includes the package archive. Review those files before pushing the tag, then check the workflow and release page. Do not create a duplicate release manually.
 
@@ -51,6 +51,8 @@ If a tag push did not trigger the workflow, run **Publish GitHub release** manua
 CI uses Node 22 and the pinned official `bb-app@0.46.1` CLI. Keep its version and the supported SDK/Pierre declarations aligned when upgrading BB support. Check both the CI and release workflow results for every release.
 
 ## Prepare the BB Community submission
+
+The existing marketplace entry tracks `^0.1.0`, so compatible 0.1.x tags are eligible without a new source entry. For v0.1.1, preserve that source range, short description, icon, and screenshot. Submit a separate PR updating only the overview to cover the new settings and chat navigation; do not add another entry. This keeps the frozen v1 document unchanged.
 
 Read the current contracts on the default branch of [get-bb/marketplace](https://github.com/get-bb/marketplace), especially `schema/marketplace-v2.schema.json`, `marketplace.base.json`, and its screenshot/overview rules. The checked category is `code-and-reviews`.
 

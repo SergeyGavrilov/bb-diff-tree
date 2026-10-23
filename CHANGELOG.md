@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 — 2026-10-23
 
 - Optional chat file-link routing: BB default, an adjacent Diff Tree button, or opening ordinary clicks in Diff Tree.
 - Support Open buttons in GenUI Changes/Commits file lists as well as Markdown links, preserving filename clicks for inline diff expansion.
@@ -8,8 +8,6 @@
 - Optional smooth diff transitions with a quiet loading skeleton, a short fade, and reduced-motion support. Disable in settings to restore loading text.
 - Reuse the existing viewer for chat targets, select their tree rows, reveal parent folders, and show an explicit fallback for files without changes.
 - BB-managed settings for file icons, initial diff layout, code font size, unchanged-line expansion step, and refresh on returning to the app.
-
-These changes are unreleased development work and have not been published as a release.
 
 ## 0.1.0 — 2026-10-22
 
