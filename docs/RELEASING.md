@@ -1,6 +1,6 @@
 # Releasing Diff Tree
 
-The current release is **0.1.1**, package **bb-plugin-diff-tree**, plugin ID **diff-tree**, Git tag **v0.1.1**. The distribution source is a public GitHub repository with the semver range **^0.1.0**; publishing to npm is optional and is not part of this release plan.
+The current release is **0.1.2**, package **bb-plugin-diff-tree**, plugin ID **diff-tree**, Git tag **v0.1.2**. The distribution source is a public GitHub repository with the semver range **^0.1.0**; publishing to npm is optional and is not part of this release plan.
 
 ## Before each release
 
@@ -40,7 +40,7 @@ Once the destination and screenshots are ready:
 2. Commit the reviewed release files and record `git rev-parse HEAD`.
 3. Confirm the authenticated account with `gh auth status` and `gh api user --jq .login`.
 4. Confirm the repository is public and the intended remote matches `git remote -v`.
-5. After explicit release approval, create the annotated `v0.1.1` tag and push the reviewed main commit and tag.
+5. After explicit release approval, create the annotated `v0.1.2` tag and push the reviewed main commit and tag.
 
 The `Publish GitHub release` workflow builds, tests, validates, packs, and publishes a GitHub release when the approved tag is pushed. The release uses `release/github-notes.md` and includes the package archive. Review those files before pushing the tag, then check the workflow and release page. Do not create a duplicate release manually.
 
@@ -52,7 +52,7 @@ CI uses Node 22 and the pinned official `bb-app@0.46.1` CLI. Keep its version an
 
 ## Prepare the BB Community submission
 
-The existing marketplace entry tracks `^0.1.0`, so compatible 0.1.x tags are eligible without a new source entry. For v0.1.1, preserve that source range, short description, icon, and screenshot. Submit a separate PR updating only the overview to cover the new settings and chat navigation; do not add another entry. This keeps the frozen v1 document unchanged.
+The existing marketplace entry tracks `^0.1.0`, so compatible 0.1.x tags are eligible without a new source entry. For v0.1.2, preserve that source range, short description, icon, and screenshot. Update the existing open overview PR #650 to cover settings, chat navigation, and worktree browsing; do not add another entry or duplicate PR. If that PR has already merged, open a new overview-only PR. This keeps the frozen v1 document unchanged.
 
 Read the current contracts on the default branch of [get-bb/marketplace](https://github.com/get-bb/marketplace), especially `schema/marketplace-v2.schema.json`, `marketplace.base.json`, and its screenshot/overview rules. The checked category is `code-and-reviews`.
 

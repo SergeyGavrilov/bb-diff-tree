@@ -9,6 +9,7 @@ Diff Tree adds a thread panel to [BB](https://getbb.app) with a searchable file 
 ## What you get
 
 - **A directory tree for changes.** Collapse folders, search current and previous paths, and see file statuses and aggregate additions/deletions.
+- **Worktree browsing.** Toggle the Worktree button to browse current files, including unchanged files, and read their source beside the tree. Changed files retain their comparison badges and can switch between Diff and File.
 - **Four comparison scopes.** Review all branch changes, the working copy, the last 1–100 commits, or one selected commit.
 - **Searchable comparison branches.** Use BB's branch picker with an automatic default based on the recorded creation branch when available.
 - **Unified and split diffs.** Syntax highlighting follows BB's code theme. Expand unchanged lines upwards or downwards in configurable steps (30 lines by default), or reveal an entire gap.
@@ -70,6 +71,14 @@ The sidebar resizes horizontally in wide panels and moves above the diff in narr
 | Expand or collapse a folder | → / ←, or click the folder |
 
 Chat actions append to the existing draft and focus the composer. They never submit it. Historical diff quotes identify the selected revisions; **Open working-copy file** opens the current workspace file.
+
+### Browse the worktree
+
+Available since v0.1.2. Use **Worktree** beside Refresh to switch from changed paths to the current thread's worktree. Its badge shows **Diff** for changed paths or **Full tree** for the whole worktree. Click it again to return to the changes list. Folders start collapsed in this mode, search reveals matching paths, and both modes keep their own folder expansion state.
+
+Unchanged files open in the source viewer with BB's syntax highlighting and line numbers. Changed files keep their comparison badges and default to the selected diff; choose **File** to read the complete working-copy content, or **Diff** to return. The File preview always reads the live working copy, including when comparing historical commits. The header's file mention and Cmd/Ctrl+click in the tree also work for unchanged files. A chat target outside the diff offers **View in worktree**.
+
+The list uses the environment's host and honors Git ignore rules, with BB's dependency/cache exclusions. Tracked and non-ignored untracked files, including hidden files, are included; symlinks and `.git` internals are excluded. Deleted paths remain in Changes and are absent from the live tree. BB returns at most 10,000 paths per query; a partial-list notice prompts you to search for files outside that result. Source previews are loaded on selection and limited to 512 KiB; binary, empty, oversized, and unreadable files show an appropriate notice. The Open file button remains available.
 
 ## Settings
 

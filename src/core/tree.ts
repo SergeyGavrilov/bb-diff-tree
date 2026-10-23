@@ -9,22 +9,26 @@ export interface ChangedFile {
   origin: "tracked" | "untracked";
 }
 
-export interface Directory {
+export interface TreeFile {
+  path: string;
+  previousPath?: string | null;
+  additions?: number;
+  deletions?: number;
+}
+export interface Directory<T extends TreeFile = ChangedFile> {
   name: string;
   path: string;
-  directories: Directory[];
-  files: ChangedFile[];
+  directories: Directory<T>[];
+  files: T[];
   count: number;
   additions: number;
   deletions: number;
 }
 
-export function buildTree(files: readonly ChangedFile[]): Directory {
-  const root: Directory = { name: "", path: "", directories: [], files: [], count: 0, additions: 0, deletions: 0 };
-  const directories = new Map<string, Directory>([["", root]]);
-  for (const file of files) {
-    const parts = file.path.split("/");
-    parts.pop();
+export function buildTree<T extends TreeFile>(files: readonly T[], paths: readonly string[] = []): Directory<T> {
+  const root: Directory<T> = { name: "", path: "", directories: [], files: [], count: 0, additions: 0, deletions: 0 };
+  const directories = new Map<string, Directory<T>>([["", root]]);
+  function ensureDirectory(parts: string[]) {
     let parent = root;
     const ancestors = [root];
     for (const name of parts) {
@@ -38,11 +42,17 @@ export function buildTree(files: readonly ChangedFile[]): Directory {
       parent = directory;
       ancestors.push(parent);
     }
+    return { parent, ancestors };
+  }
+  for (const path of paths) ensureDirectory(path.split("/"));
+  for (const file of files) {
+    const parts = file.path.split("/"); parts.pop();
+    const { parent, ancestors } = ensureDirectory(parts);
     parent.files.push(file);
     for (const directory of ancestors) {
       directory.count++;
-      directory.additions += file.additions;
-      directory.deletions += file.deletions;
+      directory.additions += file.additions ?? 0;
+      directory.deletions += file.deletions ?? 0;
     }
   }
   for (const directory of directories.values()) {
@@ -52,7 +62,7 @@ export function buildTree(files: readonly ChangedFile[]): Directory {
   return root;
 }
 
-export function filterFiles(files: readonly ChangedFile[], query: string): ChangedFile[] {
+export function filterFiles<T extends TreeFile>(files: readonly T[], query: string): T[] {
   const needle = query.trim().toLocaleLowerCase();
   return files.filter(file => `${file.path}\n${file.previousPath ?? ""}`.toLocaleLowerCase().includes(needle));
 }

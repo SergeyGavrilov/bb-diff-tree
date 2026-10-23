@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2 — 2026-10-23
+
+- A separate Worktree button for browsing the current environment's files, including unchanged files.
+- Syntax-highlighted working-copy source previews, Diff/File switching, and file mentions for unchanged files.
+- Server-side worktree path search, explicit partial-list notices, independent folder expansion state, and source preview size/binary/error handling.
+- View in worktree for chat targets outside the selected comparison, including workspaces with no changes.
+- Stable Diff/File switch placement and an explicit Diff/Full tree state in the Worktree button.
+
 ## 0.1.1 — 2026-10-23
 
 - Optional chat file-link routing: BB default, an adjacent Diff Tree button, or opening ordinary clicks in Diff Tree.

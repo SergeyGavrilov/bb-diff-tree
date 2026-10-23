@@ -16,6 +16,11 @@ import { usePreferences } from "./hooks/use-preferences";
 import { mountChatFileLinks } from "./chat-file-links";
 import { useFileRequest } from "./file-navigation";
 import { DiffLoading } from "./components/diff-loading";
+import { FileSource } from "./components/file-source";
+import { useWorktree } from "./hooks/use-worktree";
+import { changedEntries, worktreeEntries, validWorkspacePath } from "../core/worktree";
+import type { BrowserFile } from "../core/worktree";
+import type { Environment } from "../core/comparison-base";
 import "./styles.css";
 
 const statusLabels: Record<ChangedFile["changeKind"], string> = { added: "A", copied: "C", deleted: "D", modified: "M", renamed: "R", type_changed: "T" };
@@ -27,7 +32,7 @@ function Notice({ children, error = false }: { children: ReactNode; error?: bool
 }
 
 function TreeRows({ directory, collapsed, toggle, selected, select, mention, depth = 0, searching }: {
-  directory: Directory; collapsed: Set<string>; toggle: (path: string) => void; selected: string | null;
+  directory: Directory<BrowserFile>; collapsed: Set<string>; toggle: (path: string) => void; selected: string | null;
   select: (path: string) => void; mention: (path: string) => void; depth?: number; searching: boolean;
 }) {
   return <>{directory.directories.map(child => {
@@ -42,10 +47,10 @@ function TreeRows({ directory, collapsed, toggle, selected, select, mention, dep
     </div>;
   })}{directory.files.map(file => <button type="button" key={file.path} className={`dt-row ${selected === file.path ? "dt-selected" : ""}`} style={{ paddingLeft: 30 + depth * 16 }} aria-current={selected === file.path ? "true" : undefined} onClick={event => { if (event.metaKey || event.ctrlKey) { event.preventDefault(); mention(file.path); } else select(file.path); }} title={`${file.previousPath ? `${file.previousPath} → ${file.path}` : file.path}\nCmd/Ctrl+click to add file to chat`}>
     <FileIcon path={file.path} /><span className="dt-name">{file.path.split("/").pop()}</span>
-    <span className={`dt-status dt-status-${file.changeKind}`} aria-label={file.changeKind}>{statusLabels[file.changeKind]}</span><Stats {...file} />
+    {file.change && <><span className={`dt-status dt-status-${file.change.changeKind}`} aria-label={file.change.changeKind}>{statusLabels[file.change.changeKind]}</span><Stats {...file.change} /></>}
   </button>)}</>;
 }
-function directoryPaths(directory: Directory): string[] {
+function directoryPaths(directory: Directory<BrowserFile>): string[] {
   return directory.directories.flatMap(child => [child.path, ...directoryPaths(child)]);
 }
 function navigateRows(event: KeyboardEvent<HTMLElement>) {
@@ -80,7 +85,8 @@ function FileDiff({ snapshot, file, view, mention }: { snapshot: Snapshot; file:
   </section>;
 }
 
-function ChangesBrowser({ snapshot, request }: { snapshot: Snapshot; request?: { path: string; sequence: number } }) {
+const noChanges: ChangedFile[] = [];
+function ChangesBrowser({ snapshot, environment, revision, worktreeMode, browseWorktree, request }: { snapshot?: Snapshot; environment: Environment; revision: number; worktreeMode: boolean; browseWorktree: () => void; request?: { path: string; sequence: number } }) {
   const preferences = usePreferences();
   const composer = useComposer();
   const [mentionStatus, setMentionStatus] = useState<{ error: boolean; text: string }>();
@@ -91,30 +97,50 @@ function ChangesBrowser({ snapshot, request }: { snapshot: Snapshot; request?: {
     } catch (cause) { setMentionStatus({ error: true, text: cause instanceof Error ? cause.message : String(cause) }); }
   };
   const [query, setQuery] = useState("");
-  const [collapsed, setCollapsed] = useState(new Set<string>());
+  const worktree = useWorktree(environment.id, worktreeMode, revision, query);
+  const [changesCollapsed, setChangesCollapsed] = useState(new Set<string>());
+  const [worktreeCollapsed, setWorktreeCollapsed] = useState<Set<string>>();
   const [selected, setSelected] = useState<string | null>(request?.path ?? null);
   const [view, setView] = useState<"unified" | "split">(preferences.defaultView);
   const [manualView, setManualView] = useState(false);
+  const [preview, setPreview] = useState<"diff" | "file">("diff");
   useEffect(() => { if (!manualView) setView(preferences.defaultView); }, [preferences.defaultView, manualView]);
   useEffect(() => {
     if (!request) return;
     setQuery(""); setSelected(request.path);
-    setCollapsed(previous => new Set([...previous].filter(path => !request.path.startsWith(`${path}/`))));
+    setChangesCollapsed(previous => new Set([...previous].filter(path => !request.path.startsWith(`${path}/`))));
+    setWorktreeCollapsed(previous => previous ? new Set([...previous].filter(path => !request.path.startsWith(`${path}/`))) : undefined);
   }, [request]);
-  const filtered = useMemo(() => filterFiles(snapshot.files, query), [snapshot.files, query]);
-  const tree = useMemo(() => buildTree(filtered), [filtered]);
-  const missingRequested = selected === request?.path && !snapshot.files.some(file => file.path === selected);
-  const selectedFile = missingRequested ? undefined : filtered.find(file => file.path === selected) ?? filtered[0];
+  const changes = snapshot?.files ?? noChanges;
+  const entries = useMemo(() => worktreeMode ? worktreeEntries(worktree?.paths ?? [], changes) : { files: changedEntries(changes), directories: [] }, [worktreeMode, worktree?.paths, changes]);
+  const filtered = useMemo(() => worktreeMode ? entries.files : filterFiles(entries.files, query), [worktreeMode, entries.files, query]);
+  const tree = useMemo(() => buildTree(filtered, entries.directories), [filtered, entries.directories]);
+  const missingRequested = !worktreeMode && selected === request?.path && !changes.some(file => file.path === selected);
+  const requestedFile: BrowserFile | undefined = worktreeMode && selected === request?.path && validWorkspacePath(selected!) ? { path: selected! } : undefined;
+  const selectedFile = missingRequested ? undefined : filtered.find(file => file.path === selected) ?? requestedFile ?? filtered[0];
+  const defaultCollapsed = useMemo(() => new Set(directoryPaths(tree).filter(path => !request?.path.startsWith(`${path}/`))), [tree, request]);
+  const collapsed = worktreeMode ? worktreeCollapsed ?? defaultCollapsed : changesCollapsed;
+  const setCollapsed = (next: Set<string> | ((previous: Set<string>) => Set<string>)) => {
+    if (worktreeMode) setWorktreeCollapsed(previous => typeof next === "function" ? next(previous ?? defaultCollapsed) : next);
+    else setChangesCollapsed(next);
+  };
+  const showSource = !!selectedFile && (!selectedFile.change || !snapshot || (preview === "file" && (worktreeMode || selectedFile.change.changeKind !== "deleted")));
   const toggle = (path: string) => setCollapsed(previous => { const next = new Set(previous); if (!next.delete(path)) next.add(path); return next; });
   return <div className="dt-browser">
-    <aside className="dt-sidebar" aria-label="Changed files">
-      <div className="dt-search"><Icon name="Search" className="dt-icon" /><input aria-label="Search files" placeholder="Search by path…" value={query} onChange={event => setQuery(event.target.value)} />{query && <button type="button" aria-label="Clear search" onClick={() => setQuery("")}><Icon name="X" className="dt-icon" /></button>}</div>
-      <div className="dt-tree-toolbar"><span>{filtered.length} / {snapshot.files.length} files</span><button type="button" title="Expand all" aria-label="Expand all" onClick={() => setCollapsed(new Set())}><ActionIcon kind="expand" /></button><button type="button" title="Collapse all" aria-label="Collapse all" disabled={!!query.trim()} onClick={() => setCollapsed(new Set(directoryPaths(tree)))}><ActionIcon kind="collapse" /></button></div>
-      <nav className="dt-tree" aria-label="Changes tree" onKeyDown={navigateRows}>{filtered.length ? <TreeRows directory={tree} collapsed={collapsed} toggle={toggle} selected={selectedFile?.path ?? null} select={setSelected} mention={mention} searching={!!query.trim()} /> : <Notice>{query ? "No matching files." : "No changes."}</Notice>}</nav>
+    <aside className="dt-sidebar" aria-label={worktreeMode ? "Worktree files" : "Changed files"}>
+      <div className="dt-search"><Icon name="Search" className="dt-icon" /><input aria-label="Search files" placeholder="Search by path…" maxLength={256} value={query} onChange={event => setQuery(event.target.value)} />{query && <button type="button" aria-label="Clear search" onClick={() => setQuery("")}><Icon name="X" className="dt-icon" /></button>}</div>
+      <div className="dt-tree-toolbar"><span>{filtered.length} / {entries.files.length} files</span><button type="button" title="Expand all" aria-label="Expand all" onClick={() => setCollapsed(new Set())}><ActionIcon kind="expand" /></button><button type="button" title="Collapse all" aria-label="Collapse all" disabled={!!query.trim()} onClick={() => setCollapsed(new Set(directoryPaths(tree)))}><ActionIcon kind="collapse" /></button></div>
+      {worktreeMode && worktree?.truncated && <p className="dt-context" role="status">The worktree list is partial. Search by path to find files outside this list.</p>}
+      <nav className="dt-tree" aria-label={worktreeMode ? "Worktree tree" : "Changes tree"} onKeyDown={navigateRows}>{worktreeMode && !worktree ? <Notice>Loading worktree…</Notice> : worktreeMode && worktree?.error ? <Notice error>{worktree.error}</Notice> : filtered.length || tree.directories.length ? <TreeRows directory={tree} collapsed={collapsed} toggle={toggle} selected={selectedFile?.path ?? null} select={setSelected} mention={mention} searching={!!query.trim()} /> : <Notice>{query ? "No matching files." : worktreeMode ? "No files in the worktree." : "No changes."}</Notice>}</nav>
       {mentionStatus && <div className={`dt-context ${mentionStatus.error ? "dt-error" : ""}`} role={mentionStatus.error ? "alert" : "status"}>{mentionStatus.text}</div>}
-      <footer className="dt-summary"><Stats {...buildTree(snapshot.files)} /><span>{snapshot.label}</span></footer>
+      <footer className="dt-summary"><Stats {...buildTree(entries.files)} /><span>{worktreeMode ? "Working copy" : snapshot?.label}</span></footer>
     </aside>
-    <div className="dt-content"><div className="dt-view-toolbar"><span>Changes</span><div className="dt-segment" role="group" aria-label="Diff view"><button type="button" aria-pressed={view === "unified"} onClick={() => { setView("unified"); setManualView(true); }}>Unified</button><button type="button" aria-pressed={view === "split"} onClick={() => { setView("split"); setManualView(true); }}>Split</button></div></div>{missingRequested ? <Notice><strong>{selected}</strong><p>No changes for this file in the selected comparison.</p><FileLink target={{ kind: "workspace", environmentId: snapshot.environmentId, path: selected! }}>Open file in BB</FileLink></Notice> : <FileDiff snapshot={snapshot} file={selectedFile} view={view} mention={mention} />}</div>
+    <div className="dt-content"><div className="dt-view-toolbar"><span>{showSource ? "File" : "Changes"}</span>
+      <div className="dt-preview-controls">
+      {!showSource && <div className="dt-segment" role="group" aria-label="Diff view"><button type="button" aria-pressed={view === "unified"} onClick={() => { setView("unified"); setManualView(true); }}>Unified</button><button type="button" aria-pressed={view === "split"} onClick={() => { setView("split"); setManualView(true); }}>Split</button></div>}
+      {selectedFile && <div className="dt-segment" role="group" aria-label="File preview"><button type="button" disabled={!selectedFile.change || !snapshot} aria-pressed={!showSource} onClick={() => setPreview("diff")}>Diff</button><button type="button" disabled={!worktreeMode && selectedFile.change?.changeKind === "deleted"} aria-pressed={showSource} onClick={() => setPreview("file")}>File</button></div>}
+      </div>
+    </div>{missingRequested ? <Notice><strong>{selected}</strong><p>No changes for this file in the selected comparison.</p><button type="button" className="dt-action dt-text-action" onClick={browseWorktree}>View in worktree</button><FileLink target={{ kind: "workspace", environmentId: environment.id, path: selected! }}>Open file in BB</FileLink></Notice> : showSource && selectedFile ? <FileSource environment={environment} path={selectedFile.path} revision={revision} mention={mention} /> : snapshot ? <FileDiff snapshot={snapshot} file={selectedFile?.change} view={view} mention={mention} /> : <Notice>Select a file in the tree.</Notice>}</div>
   </div>;
 }
 
@@ -127,6 +153,7 @@ export function DiffTreePanel({ threadId }: { threadId: string }) {
   const [revision, setRevision] = useState(0);
   const [count, setCount] = useState(1);
   const [commit, setCommit] = useState("");
+  const [worktreeMode, setWorktreeMode] = useState(false);
   useEffect(() => {
     if (previousRequest.current === request) return;
     previousRequest.current = request;
@@ -167,13 +194,15 @@ export function DiffTreePanel({ threadId }: { threadId: string }) {
           {history.commits.map(item => <option key={item.sha} value={item.sha}>{item.shortSha} · {item.subject} · {item.author}</option>)}
         </select>}
       </div>
+      <button type="button" className="dt-action dt-text-action dt-worktree-toggle" onClick={() => setWorktreeMode(value => !value)} title={worktreeMode ? "Full worktree shown. Switch to changes only" : "Changes only shown. Browse the full worktree"} aria-label="Browse worktree" aria-pressed={worktreeMode}><Icon name="FolderTree" className="dt-icon" />Worktree<span className="dt-worktree-state">{worktreeMode ? "Full tree" : "Diff"}</span></button>
       <button type="button" className="dt-action dt-refresh" onClick={refresh} title="Refresh" aria-label="Refresh"><ActionIcon kind="refresh" /></button>
     </header>
     {scope === "recent" && <p className="dt-context">Combined diff of the last {count === 1 ? "commit" : `${count} commits`} along first-parent history. Working-copy changes are excluded.</p>}
     {scope === "commit" && history.hasMore && <p className="dt-context">Showing the 200 most recent commits along first-parent history.</p>}
     {scope === "commit" && history.error && <Notice error>{history.error}</Notice>}
     {snapshot?.truncated && <Notice>The BB file limit was reached; some changed files may be missing.</Notice>}
-    {error ? <Notice error>{error}</Notice> : snapshot ? <ChangesBrowser key={threadId} snapshot={snapshot} request={request} /> : <Notice>{scope === "commit" ? history.loading ? "Loading commit history…" : "Choose a commit to view its changes." : "Loading changes…"}</Notice>}
+    {error && worktreeMode && environment && <p className="dt-context" role="status">Comparison unavailable: {error}. Worktree files are still available.</p>}
+    {environment && (worktreeMode || snapshot) ? <ChangesBrowser key={threadId} snapshot={snapshot} environment={environment} revision={revision} worktreeMode={worktreeMode} browseWorktree={() => setWorktreeMode(true)} request={request} /> : error ? <Notice error>{error}</Notice> : <Notice>{scope === "commit" ? history.loading ? "Loading commit history…" : "Choose a commit to view its changes." : "Loading changes…"}</Notice>}
   </div>;
 }
 export default definePluginApp(app => {

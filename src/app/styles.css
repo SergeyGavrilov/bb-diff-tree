@@ -36,6 +36,7 @@
 .dt-summary > span:last-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .dt-content, .dt-preview { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; }
 .dt-view-toolbar { padding: 7px 12px; min-height: 45px; justify-content: space-between; color: var(--muted-foreground); font-size: 11px; }
+.dt-preview-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; }
 .dt-segment { display: flex; padding: 2px; border: 1px solid var(--border); border-radius: 6px; }
 .dt-segment button { padding: 3px 8px; border-radius: 4px; }
 .dt-segment button[aria-pressed="true"] { background: var(--accent); color: var(--accent-foreground); }
@@ -67,6 +68,12 @@
 .dt-native-picker button > span { overflow: hidden; text-overflow: ellipsis; }
 .dt-auto-badge { padding: 2px 5px; border-radius: 4px; font-size: 10px; color: var(--muted-foreground); background: var(--muted); flex-shrink: 0; }
 .dt-refresh { margin-left: auto; }
+.dt-worktree-toggle { margin-left: auto; height: 32px; border: 1px solid var(--border) !important; }
+.dt-worktree-toggle[aria-pressed="true"] { background: var(--accent); color: var(--accent-foreground); }
+.dt-worktree-state { width: 9ch; padding: 2px 4px; border-radius: 3px; background: var(--muted); color: var(--muted-foreground); font-size: 10px; text-align: center; white-space: nowrap; }
+.dt-worktree-toggle + .dt-refresh { margin-left: 0; }
+.dt-view-toolbar > span { margin-right: auto; }
+.dt-view-toolbar { flex-wrap: wrap; }
 .dt-count-control { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; white-space: nowrap; }
 .dt-count-control input { width: 60px; }
 .dt-commit-select { flex: 1; min-width: 80px; width: 100%; }

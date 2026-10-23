@@ -34,13 +34,14 @@ const statusResult: Awaited<ReturnType<ReturnType<typeof useSdk>["environments"]
 };
 const cleanups: (() => void)[] = [];
 afterEach(() => { cleanups.splice(0).forEach(fn => fn()); clearFileRequests(); });
-async function open(files: ChangedFile[], overrides: Record<string, unknown> = {}, rpc: Record<string, (input: any) => any> = {}, settings?: Record<string, string | number | boolean>) {
+async function open(files: ChangedFile[], overrides: Record<string, unknown> = {}, rpc: Record<string, (input: any) => any> = {}, settings?: Record<string, string | number | boolean>, fileApi: Record<string, unknown> = {}) {
   const app = await loadPluginApp(() => import("../src/app/index"));
   const slot = renderSlot(app.threadPanelActions[0]!, { threadId: "thread-1", params: null }, {
     rpc,
     settings,
     composer: { text: "Existing draft", scope: { kind: "thread", threadId: "thread-1" } },
     sdk: {
+      files: { read: async ({ path }: { path: string }) => ({ path, content: `Source of ${path}`, contentEncoding: "utf8" as const, sizeBytes: 32, sha256: "abc" }), ...fileApi },
       threads: { get: async () => makeThreadResponse({ environmentId: "env-1" }) },
       environments: {
         get: async () => environmentFixture(),
@@ -58,6 +59,107 @@ async function open(files: ChangedFile[], overrides: Record<string, unknown> = {
 }
 
 describe("Diff Tree panel", () => {
+  const listing = (paths: string[], directories: string[] = [], truncated = false) => ({ paths: [
+    ...directories.map(path => ({ path, name: path.split("/").pop()!, kind: "directory", positions: [], score: 0 })),
+    ...paths.map(path => ({ path, name: path.split("/").pop()!, kind: "file", positions: [], score: 0 })),
+  ], truncated });
+
+  it("browses the worktree on demand, previews unchanged files and preserves change metadata and mentions", async () => {
+    const slot = await open([file("src/changed.ts"), file("gone.ts", { changeKind: "deleted" })], {
+      paths: async () => listing(["src/changed.ts", "docs/readme.md"], ["src", "docs", "empty"]),
+    });
+    expect(slot.inspection.sdkCalls.filter(call => call.method === "environments.paths")).toHaveLength(0);
+    fireEvent.click(slot.getByRole("button", { name: "Browse worktree" }));
+    await slot.findByRole("button", { name: /docs/ });
+    expect(slot.getByRole("button", { name: /docs/ }).getAttribute("aria-expanded")).toBe("false");
+    expect(slot.getByRole("button", { name: /empty/ })).toBeTruthy();
+    fireEvent.click(slot.getByRole("button", { name: "Expand all" }));
+    expect(slot.queryByRole("button", { name: /gone.ts/ })).toBeNull();
+    fireEvent.click(slot.getByRole("button", { name: /readme.md/ }));
+    expect((await slot.findByTestId("bb-source-code")).textContent).toBe("Source of /workspace/docs/readme.md");
+    expect(slot.getByRole("button", { name: "Diff" }).hasAttribute("disabled")).toBe(true);
+    expect(slot.getByRole("button", { name: /readme.md/ }).querySelector(".dt-status")).toBeNull();
+    expect(slot.inspection.sdkCalls.filter(call => call.method === "files.read").at(-1)?.args[0]).toMatchObject({ hostId: "host-1", rootPath: "/workspace", path: "/workspace/docs/readme.md" });
+    fireEvent.click(slot.getByRole("button", { name: /readme.md/ }), { metaKey: true });
+    expect(slot.inspection.composer.draft.mentions).toEqual(expect.arrayContaining([expect.objectContaining({ path: "docs/readme.md" })]));
+    expect(slot.inspection.composer.submits).toHaveLength(0);
+    fireEvent.click(slot.getByRole("button", { name: /changed.ts/ }));
+    expect(slot.getByRole("region", { name: "Selected file diff" })).toBeTruthy();
+    expect(slot.getByRole("button", { name: /changed.ts/ }).querySelector(".dt-status")?.textContent).toBe("M");
+    fireEvent.click(slot.getByRole("button", { name: "File" }));
+    expect((await slot.findByTestId("bb-source-code")).textContent).toBe("Source of /workspace/src/changed.ts");
+    fireEvent.click(slot.getByRole("button", { name: "Diff" }));
+    fireEvent.click(slot.getByRole("button", { name: "Browse worktree" }));
+    await slot.findByRole("navigation", { name: "Changes tree" });
+    expect(slot.queryByRole("button", { name: /readme.md/ })).toBeNull();
+    expect(slot.getByRole("button", { name: /gone.ts/ })).toBeTruthy();
+  });
+
+  it("opens an unchanged file from chat inside the worktree when there are no changes", async () => {
+    const slot = await open([], { paths: async () => listing(["src/unchanged.py"], ["src"]) });
+    act(() => requestFile("thread-1", "src/unchanged.py"));
+    fireEvent.click(await slot.findByRole("button", { name: "View in worktree" }));
+    expect((await slot.findByTestId("bb-source-code")).textContent).toBe("Source of /workspace/src/unchanged.py");
+    expect(slot.getByRole("button", { name: /unchanged.py/ }).getAttribute("aria-current")).toBe("true");
+    expect(slot.inspection.sdkCalls.filter(call => call.method === "environments.diffPatch")).toHaveLength(0);
+  });
+
+  it("searches the server beyond truncated worktree results and ignores stale search responses", async () => {
+    let finish!: (value: unknown) => void;
+    const pending = new Promise(resolve => { finish = resolve; });
+    const slot = await open([], { paths: async ({ query }: { query?: string }) => query === "old" ? pending : query === "dtrg" ? listing(["deep/target.py"]) : listing(["README.md"], [], true) });
+    fireEvent.click(slot.getByRole("button", { name: "Browse worktree" }));
+    await slot.findByText(/The worktree list is partial/);
+    fireEvent.change(slot.getByRole("textbox", { name: "Search files" }), { target: { value: "old" } });
+    await waitFor(() => expect(slot.inspection.sdkCalls.filter(call => call.method === "environments.paths")).toHaveLength(2));
+    fireEvent.change(slot.getByRole("textbox", { name: "Search files" }), { target: { value: "dtrg" } });
+    fireEvent.click(await slot.findByRole("button", { name: /target.py/ }));
+    expect((await slot.findByTestId("bb-source-code")).textContent).toBe("Source of /workspace/deep/target.py");
+    await act(async () => { finish(listing(["old.ts"])); });
+    expect(slot.queryByRole("button", { name: /old.ts/ })).toBeNull();
+    expect(slot.inspection.sdkCalls.filter(call => call.method === "environments.paths").at(-1)?.args[0]).toMatchObject({ environmentId: "env-1", query: "dtrg", limit: "10000" });
+  });
+
+  it.each([
+    ["binary", { content: "AAAB", contentEncoding: "base64", sizeBytes: 3 }, "Binary file — no source preview available."],
+    ["large", { content: "large", contentEncoding: "utf8", sizeBytes: 524289 }, "This file exceeds the 512 KiB source preview limit. Open it in BB to view it."],
+    ["empty", { content: "", contentEncoding: "utf8", sizeBytes: 0 }, "Empty file."],
+  ])("handles %s worktree files without rendering invalid source", async (_kind, contents, notice) => {
+    const slot = await open([], { paths: async () => listing(["a.dat"]) }, {}, undefined, { read: async () => ({ ...(contents as object), path: "/workspace/a.dat", sha256: "abc" }) });
+    fireEvent.click(slot.getByRole("button", { name: "Browse worktree" }));
+    await slot.findByText(notice as string);
+    expect(slot.queryByTestId("bb-source-code")).toBeNull();
+    expect(slot.getByRole("link", { name: "Open file" })).toBeTruthy();
+  });
+
+  it("keeps the worktree accessible when branch comparison fails and reports read errors", async () => {
+    const slot = await open([], {
+      paths: async () => listing(["denied.ts"]),
+      diffFiles: async ({ mergeBaseBranch }: { mergeBaseBranch: string }) => { if (mergeBaseBranch === "missing") throw new Error("Branch missing"); return filesResult([]); },
+    }, {}, undefined, { read: async () => { throw new Error("File access denied"); } });
+    fireEvent.click(slot.getByRole("button", { name: "Browse worktree" }));
+    await slot.findByRole("button", { name: /denied.ts/ });
+    fireEvent.change(slot.getByRole("textbox", { name: "Base" }), { target: { value: "missing" } });
+    await slot.findByText(/Comparison unavailable: Branch missing/);
+    expect(slot.getByRole("navigation", { name: "Worktree tree" })).toBeTruthy();
+    expect((await slot.findByRole("alert")).textContent).toBe("File access denied");
+  });
+
+  it("does not show a late source response under another worktree filename", async () => {
+    let finish!: (value: unknown) => void;
+    const pending = new Promise(resolve => { finish = resolve; });
+    const slot = await open([], { paths: async () => listing(["a.ts", "b.ts"]) }, {}, undefined, {
+      read: async ({ path }: { path: string }) => path.endsWith("a.ts") ? pending : { path, content: "contents of b", contentEncoding: "utf8", sizeBytes: 13, sha256: "b" },
+    });
+    fireEvent.click(slot.getByRole("button", { name: "Browse worktree" }));
+    await waitFor(() => expect(slot.inspection.sdkCalls.filter(call => call.method === "files.read")).toHaveLength(1));
+    fireEvent.click(slot.getByRole("button", { name: /b.ts/ }));
+    expect((await slot.findByTestId("bb-source-code")).textContent).toBe("contents of b");
+    await act(async () => { finish({ path: "/workspace/a.ts", content: "late contents of a", contentEncoding: "utf8", sizeBytes: 18, sha256: "a" }); });
+    expect(slot.getByTestId("bb-source-code").textContent).toBe("contents of b");
+    expect(slot.getByTestId("bb-source-code").getAttribute("data-path")).toBe("b.ts");
+  });
+
   it.each([true, false])("uses optional smooth loading without delaying the diff (enabled=%s)", async smoothTransitions => {
     let finish!: (value: unknown) => void;
     const pending = new Promise(resolve => { finish = resolve; });
